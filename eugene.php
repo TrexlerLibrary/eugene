@@ -184,11 +184,6 @@ class Eugene {
 
         print_r($stmt->errorInfo);
 
-        // clear out pdo connection
-        /*
-        unset($stmt);
-        unset($pdo);
-        */
         return $results;
     }
 }
