@@ -6,161 +6,175 @@ date_default_timezone_set("America/New_York");
 
 class Eugene {
 
-    static $options;
-    static $dboptions = array(
+    private static $dboptions = array(
         "info" => DBINFO,
         "user" => DBUSER, // make sure the dbuser has CREATE, INSERT, and SELECT privileges
         "pass" => DBPASS
     );
+    
+    static $defaultOptions = array(
+        "delimiter" => "^",
+        "primary_key" => "id",
+        "schema" => array(
+            "id" => "int"
+        ),
+        "table_extra" => array(
+            "on_shelf" => "tinyint(1)",
+            "checked_by" => "varchar(150)",
+            "date_checked" => "varchar(50)"
+        )
+    );
+
+    public $tableName;
+    public $options;
+    public $headings;
+    public $contents;
 
     /**
      *  __construct:
-     *      merges $options array with our $defaults
+     *      takes in a file path and an array of options, splits out the row titles,
+     *      and sets rows for all
      */
-
 
     function __construct($file, $options = array()) {
         
-        $name = Eugene::generateTableName();
+        $this->tableName = Eugene::buildTableName();
 
-        $defaults = array(
-            "delimiter" => "\t",
-            "name" => $name,
-            "schema" => array(
-                "id" => "int(10)",
-                "primary_key" => "id"
-            )
-        );
+        $this->options = array_merge(Eugene::$defaultOptions, $options);
 
-        Eugene::$options = array_merge($defaults, $options);
+        $this->contents = explode("\n", file_get_contents($file));
 
-        // let's prep our file for work too
-        $this->file = explode("\n", file_get_contents($file));
-        $this->rows = explode(Eugene::$options['delimiter'], array_shift($this->file));
+        // we'll get an array of headings by shifting out the first row of our contents
+        //  and exploding that, then we'll clean them up a bit
+        $this->headings = explode($this->options['delimiter'], array_shift($this->contents));
+
+        foreach($this->headings as &$option) {
+            $option = str_replace("\r", "", strtolower(str_replace(" ", "_", $option)));
+            if ($option == "call_#(item)") { $option = "call_number"; }
+        }
     }
 
 
     /**
-     *  build:
-     *      the main revealed function that inserts the file into the
-     *      now newly-created database
+     *  setTable:
+     *      let's commence-a-jigglin'
      */
 
-    function build() {
-        $query = $this->buildTableQuery();
+    function setTable() {
+        $opts = Eugene::$dboptions;
 
-        $where = implode(",", Eugene::$options['schema']);
+        // first we'll build the table:
+        $tableQuery = $this->createTableQuery();
 
-    }
 
-    /**
-     *  buildInsertQuery:
-     *      generates a query to push the file contents into the db
-     */
-
-    function buildInsertQuery() {
-        $tableName = Eugene::$options['name'];
-
-        $where = $this->rows;
-        
-        foreach($where as &$row) {
-            $row = str_replace(" ", "_", strtolower($row));
-
-            // this might be a no-no, but the way millennium exports "call number"
-            //   is so gross and not conducive to future querying, so we'll change it
-            if ($row == "call_#(item)") { $row = "call_number"; }
+        try {
+            print_r(Eugene::query($tableQuery));
+        } catch(PDOEXCEPTION $e) {
+            echo $e->getMessage();
         }
 
-        $where = implode(",", $where);
+        $pdo = new PDO($opts['info'], $opts['user'], $opts['pass']);
 
-        $fullQuery = "INSERT INTO " . $tableName . "(" . $where . ") VALUES ";
+        foreach($this->contents as $item) {
+            $rows = explode($this->options['delimiter'], $item);
 
-        $contents = $this->file;
-        $count = count($contents);
+            if (!$rows) { continue; }
 
-        for($i = 0; $i < $count; $i++) {
-            $line = explode(Eugene::$options['delimiter'], $contents[$i]);
-            $linestring = "";
+            $query = $this->buildStatement($rows);
 
-            foreach($line as $item) {
-                $linestring .= "`" . str_replace(";", "|", $item) . "`,";
+            $stmt = $pdo->prepare($query);
+            $stmt->execute($rows);
+
+            $errors = $stmt->errorInfo();
+
+            if($errors[0] !== "00000") {
+                print_r($item);
+                echo "<br />";
+                print_r($stmt->errorInfo());
             }
 
-            substr($linestring, -1);
-            $fullQuery .= "(" . $linestring . "),";
+            $stmt->closeCursor();
         }
 
-        substr($fullQuery, -1);
-        return $fullQuery;
+    }
+
+
+
+    /**
+     *  buildStatement:
+     *      returns a prepared-statement to use w/ the querying tool
+     */
+
+    function buildStatement($input) {
+        $rowString = implode(",", $this->headings);
+
+        $query = "INSERT INTO `" . $this->tableName . "` (" . $rowString . ") VALUES ";
+
+        $query .= "(" . implode(",", array_fill(0, count($input), "?")) . ")";
+
+        return $query;
     }
 
 
     /**
-     *  buildTableQuery:
-     *      takes in the $options['schema'] and $options['name'] items and
-     *      does the grunt work of building the mysql query
+     *  createTable:
+     *      creates a table query syntax
      */
 
-    function buildTableQuery() {
-        
-        // first we'll slice out the primary key from the 'schema' option array
-        $opts = Eugene::$options;
-        $primaryKey = Eugene::$options['schema']['primary_key'];
+    function createTableQuery() {
+        $query = "CREATE TABLE IF NOT EXISTS `" . $this->tableName . "`(";
 
-        // start building our query (don't forget to wrap the key/types in parens!)
-        $string = "CREATE TABLE IF NOT EXISTS `" . $opts['name'] . "` (\n";
-        
-        // to make our lives a bit easier, we'll stuff a NEW array with each
-        // line of the table query, that way we can implode with a comma/newline
-        // and it'll come out cleanly.
-        $table = array();
-        foreach($opts['schema'] as $key => $type) {
-            $null = $key == $primaryKey ? "NOT NULL" : "NULL";
+        foreach($this->headings as $heading) {
 
-            if ($key == "primary_key") {
-                $thing = "\t" . strtoupper(str_replace("_", " ", $key)) 
-                       . "(`" . $type . "`)";
-            } else {
-                $thing = "\t`" . $key . "`" . " " . strtoupper($type) . " " . $null;
-            }
-
-            array_push($table, $thing);
+            $null = $heading == $this->options['primary_key'] ? "NOT NULL" : "NULL";
+            $query .= "`" . $heading . "`" . " VARCHAR(250) " . $null . ", ";
         }
-        
-        // implode and add to our query string
-        $table = implode(",\n", $table);
-        $string .= $table . "\n)";
 
-        return $string;
+        foreach(Eugene::$defaultOptions['table_extra'] as $key => $value) {
+            $query .= "`" . $key . "` " . strtoupper($value) . " " . $null . ", ";
+        }
+
+        $query .= "PRIMARY KEY(`" . $this->options['primary_key'] . "`)";
+
+        $query .= ")";
+        return $query;
     }
 
 
     /**
-     *  generateTableName:
-     *      returns a datestring that we'll use as a table name
-     *      year-month-dayThour:min:sec
+     *  buildTableName:
+     *      returns a date string that we'll use as our table name
      */
 
-    static function generateTableName() {
+    static function buildTableName() {
         return date('Y-m-d\TH:i:s');
     }
 
 
-
     /**
-     *  querydb:
-     *      i feel like i write this for everything. could do it in my sleep. ^_^
+     *  query:
+     *      standard run-of-the-mill pdo-driven db queryin'
      */
 
-    static function querydb($query, $fillings = array()) {
-        $pdo = new PDO(Eugene::$dboptions['dbinfo'], Eugene::$dboptions['dbname'], Eugene::$dboptions['dbpass']);
+    static function query($query, $items = array()) {
+        $opts = Eugene::$dboptions;
+        
+        $pdo = new PDO($opts['info'], $opts['user'], $opts['pass']);
         $stmt = $pdo->prepare($query);
-        $stmt->execute($fillings);
-        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $pdo->closeCursor();
+        
+        $stmt->execute($items);
 
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt->closeCursor();
+
+        print_r($stmt->errorInfo);
+
+        // clear out pdo connection
+        /*
+        unset($stmt);
+        unset($pdo);
+        */
         return $results;
     }
-
 }
 ?>
