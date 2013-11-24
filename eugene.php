@@ -76,9 +76,9 @@ class Eugene {
         $pdo = new PDO($opts['info'], $opts['user'], $opts['pass']);
 
         foreach($this->contents as $item) {
-            $rows = explode($this->options['delimiter'], $item);
+            if (!$item) { continue; }
 
-            if (!$rows) { continue; }
+            $rows = explode($this->options['delimiter'], $item);
 
             $query = $this->buildStatement($rows);
 
