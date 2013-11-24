@@ -29,6 +29,7 @@ class Eugene {
     public $options;
     public $headings;
     public $contents;
+    public $errors;
 
     /**
      *  __construct:
@@ -52,6 +53,17 @@ class Eugene {
             $option = str_replace("\r", "", strtolower(str_replace(" ", "_", $option)));
             if ($option == "call_#(item)") { $option = "call_number"; }
         }
+    }
+
+
+    /**
+     *  getErrors:
+     *      just returns the class $errors var
+     */
+
+
+    function getErrors() {
+        return $this->errors;
     }
 
 
@@ -88,9 +100,12 @@ class Eugene {
             $errors = $stmt->errorInfo();
 
             if($errors[0] !== "00000") {
-                print_r($item);
-                echo "<br />";
-                print_r($stmt->errorInfo());
+                $this->errors[] = array(
+                    "item" => $rows,
+                    "itemRaw" => $item,
+                    "timestamp" => time(),
+                    "error" => $stmt->errorInfo()
+                );
             }
 
             $stmt->closeCursor();

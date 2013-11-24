@@ -3,7 +3,7 @@
 
     define('DBINFO', '');
     define('DBUSER', '');
-    define('DBPASS', '');    
+    define('DBPASS', '');
 
     $file = "../legume/inventory.txt";
     $options = array(
