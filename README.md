@@ -12,8 +12,8 @@ define("DBPASS", "whatevs");
 $file = "./inventory.txt";
 $options = array(
   // these first two speak for themselves
-  "delimiter" => "\t",
-  "primary_key" => "barcode",
+  "delimiter" => "\t", // default: "^"
+  "primary_key" => "barcode", // default: "id"
   
   // table_extra is an array of any extra fields you'd like
   // to add into the table that aren't included in the file
